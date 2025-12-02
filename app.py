@@ -7,27 +7,36 @@ import os
 # --------------------------
 def docx_to_pdf(docx_path, pdf_path):
     out_dir = os.path.dirname(pdf_path)
+    # Linux에서 설치된 LibreOffice 경로
+    libreoffice_path = "/usr/bin/libreoffice"
     subprocess.run([
-        'libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', out_dir, docx_path
+        libreoffice_path, '--headless', '--convert-to', 'pdf', '--outdir', out_dir, docx_path
     ], check=True)
     input_pdf_name = os.path.splitext(os.path.basename(docx_path))[0] + ".pdf"
     os.rename(os.path.join(out_dir, input_pdf_name), pdf_path)
 
 def docx_to_png_list(docx_file):
+    # 업로드 파일을 임시 docx로 저장
     with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_docx:
         tmp_docx.write(docx_file.getbuffer())
         tmp_docx_path = tmp_docx.name
 
     pdf_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
     docx_to_pdf(tmp_docx_path, pdf_file)
+
+    # PDF → 이미지
     images = convert_from_path(pdf_file)
+
+    # 임시 파일 삭제
     os.remove(tmp_docx_path)
     os.remove(pdf_file)
     return images
 # --------------------------
 
+# --------------------------
 # Streamlit GUI
 st.set_page_config(page_title="DOCX → 이미지 변환기", page_icon="🖼️", layout="centered")
+
 st.markdown("""
 <style>
 .title { font-size:2.4rem; font-weight:700; text-align:center; margin-bottom:0.3rem; }
@@ -37,7 +46,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title">📄 DOCX → 이미지 변환기</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">업로드한 Word 문서를 페이지별 PNG로 변환하여 확인 및 다운로드합니다.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">업로드한 Word 문서를 페이지별 PNG로 변환하여 확인 및 다운로드할 수 있습니다.</div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("📤 Word(.docx) 파일 선택", type=["docx"])
 
@@ -46,9 +55,8 @@ if uploaded_file:
         with st.spinner("⏳ 변환 중..."):
             images = docx_to_png_list(uploaded_file)
         st.success(f"✅ 변환 완료! 총 {len(images)} 페이지")
-        
+
         # 페이지별 카드 UI
-        import tempfile
         for i, img in enumerate(images):
             st.markdown('<div class="page-card">', unsafe_allow_html=True)
             st.image(img, caption=f"페이지 {i+1}", use_column_width=True)
