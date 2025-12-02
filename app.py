@@ -1,9 +1,21 @@
 import streamlit as st
-import zipfile
-from xml.etree import ElementTree as ET
+import sys
+import subprocess
+from collections import defaultdict
 
 # --------------------------
-# 예시 글꼴 → 다운로드 링크 매핑
+# 필요한 라이브러리 자동 설치
+try:
+    import pptx
+except ModuleNotFoundError:
+    st.info("📦 python-pptx 설치 중...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "python-pptx"])
+    import pptx
+from pptx import Presentation
+# --------------------------
+
+# --------------------------
+# 글꼴 다운로드 링크 매핑 (예시)
 FONT_LINKS = {
     "Roboto": "https://fonts.google.com/specimen/Roboto",
     "Open Sans": "https://fonts.google.com/specimen/Open+Sans",
@@ -11,30 +23,11 @@ FONT_LINKS = {
     "Times New Roman": "https://www.wfonts.com/font/times-new-roman",
     "Calibri": "https://www.wfonts.com/font/calibri",
     "Verdana": "https://www.wfonts.com/font/verdana",
-    # 필요한 글꼴 추가 가능
+    # 필요시 추가 가능
 }
 
-def extract_fonts_from_pptx(pptx_file):
-    fonts = set()
-    with zipfile.ZipFile(pptx_file) as pptx_zip:
-        for file in pptx_zip.namelist():
-            if file.startswith("ppt/slides/slide") and file.endswith(".xml"):
-                xml_data = pptx_zip.read(file)
-                try:
-                    root = ET.fromstring(xml_data)
-                except ET.ParseError:
-                    continue
-                for elem in root.iter():
-                    font = elem.attrib.get("{http://schemas.openxmlformats.org/drawingml/2006/main}typeface")
-                    if font:
-                        fonts.add(font)
-    return fonts
-# --------------------------
-
-# --------------------------
-# Streamlit GUI
+# Streamlit GUI 스타일
 st.set_page_config(page_title="PPT 글꼴 확인기", page_icon="🎨", layout="centered")
-
 st.markdown("""
 <style>
 .title { font-size:2.4rem; font-weight:700; text-align:center; margin-bottom:0.3rem; }
@@ -45,23 +38,44 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title">🎨 PPT 글꼴 확인기</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">업로드한 PPTX 파일에서 사용된 글꼴을 추출하고 다운로드 링크를 제공합니다.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">업로드한 PPTX 파일에서 사용된 글꼴과 스타일을 추출하고 다운로드 링크를 제공합니다.</div>', unsafe_allow_html=True)
+# --------------------------
 
 uploaded_file = st.file_uploader("📤 PPTX 파일 선택", type=["pptx"])
 
 if uploaded_file:
     st.info("⚡ 분석 중...")
-    fonts = extract_fonts_from_pptx(uploaded_file)
 
-    if fonts:
-        st.success(f"✅ 발견된 글꼴 {len(fonts)}개")
+    prs = Presentation(uploaded_file)
+    font_info = defaultdict(list)
 
-        # 카드형으로 글꼴 + 링크 출력
-        for font in sorted(fonts):
+    # 모든 슬라이드, 도형, 텍스트 분석
+    for slide_idx, slide in enumerate(prs.slides, start=1):
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            for paragraph in shape.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    if run.font.name:
+                        font_info[run.font.name].append({
+                            "slide": slide_idx,
+                            "bold": run.font.bold,
+                            "italic": run.font.italic,
+                            "size": run.font.size.pt if run.font.size else None
+                        })
+
+    if font_info:
+        st.success(f"✅ 발견된 글꼴 {len(font_info)}개")
+
+        # 카드형 GUI + 다운로드 링크 제공
+        for font, details in font_info.items():
             link = FONT_LINKS.get(font)
             if link:
-                st.markdown(f'<div class="card">{font} → <a href="{link}" target="_blank">다운로드 / 사이트 방문</a></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="card"><b>{font}</b> - 사용 횟수: {len(details)} → '
+                    f'<a href="{link}" target="_blank">다운로드 / 사이트 방문</a></div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="card">{font} → 링크 없음</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="card"><b>{font}</b> - 사용 횟수: {len(details)} → 링크 없음</div>', unsafe_allow_html=True)
     else:
-        st.warning("❌ 글꼴을 찾지 못했습니다. PPTX에 텍스트가 없거나 XML 구조가 표준과 다를 수 있습니다.")
+        st.warning("❌ PPT에서 글꼴을 찾지 못했습니다.")
