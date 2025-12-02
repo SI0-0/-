@@ -20,7 +20,8 @@ st.markdown('<div class="subtitle">업로드한 PPTX 파일에서 사용된 글�
 uploaded_file = st.file_uploader("📤 PPTX 파일 선택", type=["pptx"])
 
 if uploaded_file:
-    st.info("⚡ 분석 중...")
+    # 분석 중 메시지 표시
+    status_msg = st.info("⚡ 분석 중...")
 
     prs = Presentation(uploaded_file)
     font_info = defaultdict(list)
@@ -40,8 +41,10 @@ if uploaded_file:
                             "size": run.font.size.pt if run.font.size else None
                         })
 
+    # 분석 완료 → 메시지 갱신
+    status_msg.success("✅ 분석 완료!")
+
     if font_info:
-        st.success("✅ 분석 완료!")
         st.write(f"발견된 글꼴 {len(font_info)}개:")
         for font, details in font_info.items():
             st.markdown(f"- **{font}** - 사용 횟수: {len(details)}")
