@@ -1,0 +1,9 @@
+[server]
+headless = true
+port = 8501
+
+[run]
+post_setup = """
+sudo apt update
+sudo apt install -y libreoffice poppler-utils
+"""
