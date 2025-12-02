@@ -1,48 +1,55 @@
 import streamlit as st
-from PIL import Image
-import numpy as np
-from font_classifier import LocalFontClassifier
-from utils import extract_text_region
+import requests
+from docx2pdf import convert
+from pdf2image import convert_from_path
+import os
 
-st.set_page_config(page_title="AI 폰트 찾기", page_icon="🔍", layout="centered")
+st.set_page_config(page_title="GitHub DOCX → 이미지", page_icon="🖼️", layout="centered")
+st.title("📄 GitHub Word(.docx) → 이미지 변환기")
+st.write("GitHub의 Word 문서를 바로 PNG 이미지로 변환합니다.")
 
-st.markdown("""
-<style>
-.title { font-size:2.4rem; font-weight:700; text-align:center; margin-bottom:0.3rem; }
-.subtitle { text-align:center; font-size:1.1rem; color:#666; margin-bottom:2rem; }
-.font-card { padding:1rem; border-radius:14px; background:#fafafa; margin-bottom:0.7rem; border:1px solid #e3e3e3; }
-.font-name { font-size:1.15rem; font-weight:600; }
-</style>
-""", unsafe_allow_html=True)
+# --------------------------
+# 사용자 입력
+docx_url = st.text_input("🔗 GitHub .docx 파일 URL")
+image_name = st.text_input("🖼 저장할 이미지 이름", "output.png")
+# --------------------------
 
-st.markdown('<div class="title">🔍 AI 폰트 찾기</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">이미지에서 텍스트를 추출하여 AI가 가장 비슷한 폰트를 추천합니다.</div>', unsafe_allow_html=True)
+def download_docx(url, filename):
+    try:
+        r = requests.get(url)
+        r.raise_for_status()
+        with open(filename, "wb") as f:
+            f.write(r.content)
+        return True
+    except Exception as e:
+        st.error(f"❌ 다운로드 실패: {e}")
+        return False
 
-@st.cache_resource
-def load_model():
-    return LocalFontClassifier(model_path="model/font_classifier.pth",
-                               label_path="model/label_map.json")
+def docx_to_png(docx_file, output_file):
+    # Word -> PDF
+    pdf_file = "temp.pdf"
+    convert(docx_file, pdf_file)
+    # PDF -> 이미지
+    pages = convert_from_path(pdf_file)
+    if pages:
+        # 첫 페이지만 저장
+        pages[0].save(output_file, "PNG")
+        os.remove(pdf_file)
+        return True
+    return False
 
-model = load_model()
-
-uploaded_file = st.file_uploader("📤 텍스트가 포함된 이미지를 업로드하세요.", type=["png","jpg","jpeg"])
-if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="업로드된 이미지", use_column_width=True)
-    img_np = np.array(image)
-    text_region = extract_text_region(img_np)
-    if text_region is None:
-        st.warning("⚠ 텍스트 영역을 찾지 못했습니다. 더 명확한 이미지를 사용하세요.")
+if st.button("🖼 변환 시작"):
+    if not docx_url:
+        st.warning("URL을 입력해주세요!")
     else:
-        st.image(text_region, caption="감지된 텍스트 영역", use_column_width=True)
-        if st.button("🔎 비슷한 폰트 분석하기"):
-            with st.spinner("AI가 이미지를 분석 중입니다..."):
-                result = model.predict(text_region, top_k=8)
-            st.success("🎉 분석 완료! 후보 폰트:")
-            for font, score in result:
-                st.markdown(f"""
-                    <div class="font-card">
-                        <div class="font-name">{font}</div>
-                        <div style="color:#888;">유사도: {score*100:.1f}%</div>
-                    </div>
-                """, unsafe_allow_html=True)
+        local_docx = "temp.docx"
+        if download_docx(docx_url, local_docx):
+            success = docx_to_png(local_docx, image_name)
+            if success:
+                st.success(f"✅ 변환 완료: {image_name}")
+                st.image(image_name, caption="변환된 이미지", use_column_width=True)
+                with open(image_name, "rb") as f:
+                    st.download_button("⬇️ 이미지 다운로드", f, file_name=image_name)
+            else:
+                st.error("❌ 변환 실패")
+            os.remove(local_docx)
