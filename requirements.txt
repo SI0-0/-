@@ -1,5 +1,4 @@
 streamlit
-requests
 python-docx
 Pillow
 docx2pdf
