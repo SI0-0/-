@@ -1,3 +1,7 @@
 streamlit
-PyPDF2
-python-docx
+Pillow
+opencv-python
+numpy
+torch
+torchvision
+git+https://github.com/Storia-AI/font-classify
