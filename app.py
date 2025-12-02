@@ -1,18 +1,6 @@
 import streamlit as st
-import sys
-import subprocess
-from collections import defaultdict
-
-# --------------------------
-# 필요한 라이브러리 자동 설치
-try:
-    import pptx
-except ModuleNotFoundError:
-    st.info("📦 python-pptx 설치 중...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "python-pptx"])
-    import pptx
 from pptx import Presentation
-# --------------------------
+from collections import defaultdict
 
 # --------------------------
 # 글꼴 다운로드 링크 매핑 (예시)
@@ -25,7 +13,9 @@ FONT_LINKS = {
     "Verdana": "https://www.wfonts.com/font/verdana",
     # 필요시 추가 가능
 }
+# --------------------------
 
+# --------------------------
 # Streamlit GUI 스타일
 st.set_page_config(page_title="PPT 글꼴 확인기", page_icon="🎨", layout="centered")
 st.markdown("""
