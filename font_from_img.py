@@ -1,122 +1,152 @@
 import streamlit as st
-from PIL import Image, ImageFont, ImageDraw
-import numpy as np
+from PIL import Image
+import torch
 import cv2
+import numpy as np
 import os
-from skimage.feature import hog
-from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(page_title="폰트 찾기", layout="centered", page_icon="🔍")
+st.set_page_config(
+    page_title="AI 폰트 찾기",
+    layout="centered",
+    page_icon="🔍"
+)
 
-# ==================== CSS ====================
+# ===============================
+#  Custom Korean UI Styling
+# ===============================
 st.markdown("""
 <style>
     .title {
         font-size: 2.3rem;
         font-weight: 700;
         text-align: center;
-        margin-bottom: 1rem;
+        color: #222;
+        margin-bottom: 0.7rem;
     }
     .subtitle {
         text-align: center;
-        font-size: 1.1rem;
-        color: #555;
+        font-size: 1.05rem;
+        color: #666;
         margin-bottom: 2rem;
     }
     .font-card {
         padding: 1rem;
-        border-radius: 12px;
-        background: #f7f7f9;
+        border-radius: 14px;
+        background: #fafafa;
         margin-bottom: 0.7rem;
-        border: 1px solid #e1e1e6;
+        border: 1px solid #e3e3e3;
     }
     .font-name {
-        font-size: 1.05rem;
+        font-size: 1.1rem;
         font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 헤더 ====================
-st.markdown('<div class="title">🔍 이미지 → 비슷한 폰트 찾기</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">이미지를 업로드하면 비슷한 폰트를 찾아드립니다.</div>', unsafe_allow_html=True)
 
-# ==================== 폰트 폴더 설정 ====================
-FONT_DIR = "fonts"
+# ===============================
+#  Header
+# ===============================
+st.markdown('<div class="title">🔍 AI 폰트 찾기</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="subtitle">이미지를 업로드하면 AI가 비슷한 폰트를 순서대로 찾아드립니다.</div>',
+    unsafe_allow_html=True
+)
 
-if not os.path.exists(FONT_DIR):
-    os.makedirs(FONT_DIR)
-    st.warning("⚠️ fonts/ 폴더가 없어 새로 생성했습니다. 여기에 .ttf 또는 .otf 파일을 넣어주세요!")
 
-# ==================== 이미지 업로드 ====================
-uploaded_file = st.file_uploader("이미지를 업로드하세요.", type=["png","jpg","jpeg","bmp"])
+# ===============================
+#  모델 로드
+# ===============================
+MODEL_PATH = "models/font_similarity_vgg.pth"
 
-# ==================== HOG 특징 추출 함수 ====================
-def extract_hog(gray):
-    return hog(gray, pixels_per_cell=(16,16), cells_per_block=(2,2), feature_vector=True)
-
-# ==================== 텍스트 박스 추출 ====================
-def extract_text_area(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 5))
-    dilated = cv2.dilate(th, kernel, 2)
-
-    cnts, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not cnts:
+@st.cache_resource
+def load_model():
+    if not os.path.exists(MODEL_PATH):
+        st.error("❌ 모델 파일을 찾을 수 없습니다.\nmodels 폴더에 font_similarity_vgg.pth 를 넣어주세요.")
         return None
-    x, y, w, h = cv2.boundingRect(max(cnts, key=cv2.contourArea))
-    return img[y:y+h, x:x+w]
 
-# ==================== 폰트 렌더링 ====================
-def render_font_sample(text, font_path, size=80):
-    img = Image.new("L", (500, 120), 255)
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(font_path, size)
-    draw.text((10, 10), text, fill=0, font=font)
-    return np.array(img)
+    model = torch.load(MODEL_PATH, map_location="cpu")
+    model.eval()
+    return model
 
-# ==================== 메인 기능 ====================
+model = load_model()
+
+
+# ===============================
+#  이미지 업로드
+# ===============================
+uploaded_file = st.file_uploader("📤 텍스트가 포함된 이미지를 업로드하세요", 
+                                 type=["png", "jpg", "jpeg", "bmp"])
+
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="업로드된 이미지", use_column_width=True)
 
     img_np = np.array(image)
-    text_region = extract_text_area(img_np)
+
+    # ===============================
+    #  텍스트 영역 추출
+    # ===============================
+    def extract_text_region(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 5))
+        dilated = cv2.dilate(thresh, kernel, iterations=2)
+
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if not contours:
+            return None
+
+        biggest = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(biggest)
+        return img[y:y+h, x:x+w]
+
+    text_region = extract_text_region(img_np)
 
     if text_region is None:
-        st.error("❗ 텍스트 영역을 찾지 못했습니다.")
-        st.stop()
+        st.warning("⚠️ 텍스트 영역을 자동으로 찾아낼 수 없습니다.\n더 선명한 이미지를 시도해 주세요.")
+    else:
+        st.image(text_region, caption="감지된 텍스트 영역", use_column_width=True)
 
-    st.image(text_region, caption="감지된 텍스트 영역", use_column_width=True)
 
-    user_text = st.text_input("비교에 사용할 문자 입력 (예: ABC / 가나 / 테스트)", "테스트")
-
+    # ===============================
+    #  폰트 찾기 버튼
+    # ===============================
     if st.button("🔎 비슷한 폰트 찾기"):
-        with st.spinner("폰트를 분석하는 중입니다..."):
-            gray = cv2.cvtColor(text_region, cv2.COLOR_RGB2GRAY)
-            gray = cv2.resize(gray, (300, 100))
-            target_hog = extract_hog(gray).reshape(1, -1)
+        if model is None:
+            st.stop()
 
-            results = []
-            for font_file in os.listdir(FONT_DIR):
-                if font_file.endswith((".ttf", ".otf")):
-                    font_path = os.path.join(FONT_DIR, font_file)
-                    sample = render_font_sample(user_text, font_path)
-                    sample = cv2.resize(sample, (300, 100))
-                    font_hog = extract_hog(sample).reshape(1, -1)
+        with st.spinner("AI가 이미지 속 폰트를 분석하는 중입니다…"):
 
-                    sim = cosine_similarity(target_hog, font_hog)[0][0]
-                    results.append((font_file, sim))
+            resized = cv2.resize(text_region, (224, 224))
+            img_tensor = torch.tensor(resized).permute(2, 0, 1).float().unsqueeze(0) / 255.
 
-            results.sort(key=lambda x: x[1], reverse=True)
+            with torch.no_grad():
+                output = model(img_tensor)
+                probs = torch.softmax(output, dim=1)[0]
 
-        st.success("🎉 분석 완료! 비슷한 폰트 Top 결과입니다:")
+            # Top 8 폰트 후보
+            topk = 8
+            top_probs, indices = torch.topk(probs, topk)
 
-        for fname, score in results[:10]:
+            font_list = []
+            for score, idx in zip(top_probs.tolist(), indices.tolist()):
+                font_name = f"Font_{idx}"  # (※ 실제 font-classify는 label→font map 필요)
+                font_list.append((font_name, score))
+
+        st.success("🎉 AI가 비슷한 폰트를 찾았습니다!")
+
+        # ===============================
+        #  출력
+        # ===============================
+        for font, score in font_list:
             st.markdown(f"""
                 <div class="font-card">
-                    <div class="font-name">{fname}</div>
-                    <div style="font-size:0.9rem;color:#888;">유사도: {score*100:.2f}%</div>
+                    <div class="font-name">{font}</div>
+                    <div style="font-size:0.9rem; color:#888;">
+                        유사도: {score*100:.1f}%
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
